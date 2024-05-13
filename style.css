@@ -1,0 +1,14 @@
+#app {
+    display: flex;
+    flex-direction: row;
+    gap: 20px;
+}
+
+.inventory-container,
+.cart-container {
+    min-height: 500px;
+    min-width: 500px;
+    border: 1px solid black;
+    border-radius: 10px;
+    padding: 20px;
+}
