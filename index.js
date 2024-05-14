@@ -1,317 +1,147 @@
-//camelcase, skewercase getCart
 const API = (() => {
     const URL = "http://localhost:3000";
-    const getCart = () => {
-        return fetch(URL + "/cart").then((res) => res.json());
-    };
-
-    const getInventory = () => {
-        return fetch(URL + "/inventory").then((res) => res.json());
-    };
-
-    const addToCart = (inventoryItem) => {
-        //{id , content, amount}
-
-        console.log("inventoryItem", inventoryItem);
-        return fetch(URL + "/cart", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(inventoryItem),
-        }).then((res) => res.json());
-    };
-
-    const updateCart = (id, newAmount) => {
-        return fetch(URL + "/cart" + "/" + id, {
-            method: "PATCH",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ amount: newAmount }),
-        }).then((res) => res.json());
-    };
-
-    const deleteFromCart = (id) => {
-        return fetch(URL + "/cart" + "/" + id, {
-            method: "DELETE",
-        }).then((res) => res.json());
-    };
-
-    const checkout = () => {
-        // you don't need to add anything here
-        return getCart().then((data) =>
-            Promise.all(data.map((item) => deleteFromCart(item.id)))
-        );
-    };
+    const fetchJson = (url, options) => fetch(url, options).then(res => res.json());
 
     return {
-        getCart,
-        updateCart,
-        getInventory,
-        addToCart,
-        deleteFromCart,
-        checkout,
+        getCart: () => fetchJson(`${URL}/cart`),
+        getInventory: () => fetchJson(`${URL}/inventory`),
+        addToCart: (item) => fetchJson(`${URL}/cart`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(item)
+        }),
+        updateCart: (id, item) => fetchJson(`${URL}/cart/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ amount: item.amount })
+        }),
+        deleteFromCart: (id) => fetchJson(`${URL}/cart/${id}`, {
+            method: "DELETE"
+        }),
+        checkout: () => {
+            return this.getCart().then(cart =>
+                Promise.all(cart.map(item => this.deleteFromCart(item.id)))
+            );
+        }
     };
 })();
-//inventory.length = 20;
-//itemPerPage.length = 8;
-//1: 0, 2: 8
-// inventory.slice(startIndex, startIndex + 8)
 
 const itemPerPage = 8;
 const Model = (() => {
-    // implement your logic for Model
     class State {
-        #onChange;
-        #inventory;
-        #cart;
-        #currentPage;
-        #displayInventory;
         constructor() {
-            this.#inventory = [];
-            this.#cart = [];
-        }
-        get cart() {
-            return this.#cart;
-        }
-
-        get inventory() {
-            return this.#inventory;
+            this.inventory = [];
+            this.cart = [];
+            this.currentPage = 0;
+            this.onChange = () => {};
         }
 
-        set cart(newCart) {
-            this.#cart = newCart;
-            this.#onChange();
-        }
-        set inventory(newInventory) {
-            this.#inventory = newInventory;
-            this.#onChange();
+        subscribe(callback) {
+            this.onChange = callback;
         }
 
-        subscribe(cb) {
-            this.#onChange = cb;
+        notify() {
+            this.onChange();
+        }
+
+        setInventory(newInventory) {
+            this.inventory = newInventory;
+            this.notify();
+        }
+
+        setCart(newCart) {
+            this.cart = newCart;
+            this.notify();
+        }
+
+        setCurrentPage(page) {
+            this.currentPage = page;
+            this.notify();
         }
     }
-    const {
-        getCart,
-        updateCart,
-        getInventory,
-        addToCart,
-        deleteFromCart,
-        checkout,
-    } = API;
-    return {
-        State,
-        getCart,
-        updateCart,
-        getInventory,
-        addToCart,
-        deleteFromCart,
-        checkout,
-    };
+
+    return new State();
 })();
 
-//iife: closure, naming space
-
-//diffing algorithm
-//reconciliation
-
 const View = (() => {
-    // implement your logic for View
     const inventoryListEl = document.querySelector(".inventory-container ul");
     const cartListEl = document.querySelector(".cart-container ul");
-    const checkoutBtnEl = document.querySelector(".checkout-btn");
-    const renderInventory = (inventory) => {
-        let contentHTML = "";
-        inventory.forEach(({ id, content, amount }) => {
-            contentHTML += `
-        <li id="inventory-${id}">
-          <span>${content}</span>
-          <button class="decrement-button">-</button>
-          <span>${amount}</span>
-          <button class="increment-button">+</button>
-          <button class="add-to-cart-button">add to cart</button>
-        </li>
-        `;
-        });
-        inventoryListEl.innerHTML = contentHTML;
+    const prevBtn = document.querySelector(".prev-btn");
+    const nextBtn = document.querySelector(".next-btn");
+    const pageInfo = document.querySelector(".page-info");
+
+    const renderInventory = (inventory, page) => {
+        const start = page * itemPerPage;
+        const end = start + itemPerPage;
+        const itemsToShow = inventory.slice(start, end);
+
+        inventoryListEl.innerHTML = itemsToShow.map(item =>
+            `<li id="inventory-${item.id}">
+                <span>${item.content}</span>
+                <button class="decrement-button">-</button>
+                <span class="amount">${item.amount}</span>
+                <button class="increment-button">+</button>
+                <button class="add-to-cart-button">add to cart</button>
+            </li>`
+        ).join('');
     };
 
     const renderCart = (cart) => {
-        let contentHTML = "";
-        cart.forEach(({ id, content, amount }) => {
-            contentHTML += `
-      <li id="cart-${id}">
-        <span>${content} x ${amount}</span>
-        <button class="delete-button">delete</button>
-      </li>
-      `;
-        });
-        cartListEl.innerHTML = contentHTML;
+        cartListEl.innerHTML = cart.map(item =>
+            `<li id="cart-${item.id}">
+                <span>${item.content} x ${item.amount}</span>
+                <button class="delete-button">delete</button>
+            </li>`
+        ).join('');
     };
+
+    const updatePageInfo = (currentPage, totalPages) => {
+        pageInfo.textContent = `Page ${currentPage + 1} of ${totalPages}`;
+    };
+
     return {
         renderInventory,
         renderCart,
-        inventoryListEl,
-        cartListEl,
-        checkoutBtnEl,
+        updatePageInfo,
+        prevBtn,
+        nextBtn
     };
 })();
 
 const Controller = ((model, view) => {
-    // implement your logic for Controller
-    const state = new model.State();
-
     const init = async () => {
-        const inventory = await model.getInventory();
-        const inventoryWithAmount = inventory.map((item) => ({
-            ...item,
-            amount: 0,
-        }));
-        state.inventory = inventoryWithAmount;
-        const cart = await model.getCart();
-        console.log("cart", cart);
-        state.cart = cart;
+        const inventory = await API.getInventory();
+        model.setInventory(inventory.map(item => ({ ...item, amount: 0 })));
+        const cart = await API.getCart();
+        model.setCart(cart);
+        updatePageInfo();
     };
 
-    const handleUpdateAmount = () => {
-        view.inventoryListEl.addEventListener("click", (event) => {
-            const target = event.target; //event.target, event.currentTarget
-            const id = target.parentElement.id.split("-")[1];
-
-            const className = target.className;
-            if (
-                className === "decrement-button" ||
-                className === "increment-button"
-            ) {
-                let oldInventory = [...state.inventory];
-                const newInventory = oldInventory.map((item) => {
-                    if (Number(id) === Number(item.id)) {
-                        return {
-                            ...item,
-                            amount: Math.max(
-                                0,
-                                className === "decrement-button"
-                                    ? item.amount - 1
-                                    : item.amount + 1
-                            ),
-                        };
-                    } else {
-                        return item;
-                    }
-                });
-
-                state.inventory = newInventory;
-            }
-        });
+    const updatePageInfo = () => {
+        const totalPages = Math.ceil(model.inventory.length / itemPerPage);
+        view.updatePageInfo(model.currentPage, totalPages);
     };
 
-    const handleAddToCart = () => {
-        view.inventoryListEl.addEventListener("click", async (event) => {
-            const target = event.target;
-            const id = target.parentElement.id.split("-")[1];
-            const className = target.className;
+    view.prevBtn.addEventListener('click', () => {
+        if (model.currentPage > 0) {
+            model.setCurrentPage(model.currentPage - 1);
+        }
+    });
 
-            const addItem = state.inventory.find(
-                (item) => Number(item.id) === Number(id)
-            );
-            if (addItem.amount <= 0) return;
-            if (className === "add-to-cart-button") {
-                /* const isAdded = state.cart.some(
-                    (item) => Number(item.id) === Number(id)
-                ); */
-                const targetIndex = state.cart.findIndex(
-                    (item) => Number(item.id) === Number(id)
-                );
-                if (targetIndex !== -1) {
-                    const targetIndex = state.cart.findIndex(
-                        (item) => Number(item.id) === Number(id)
-                    );
-                    const newAmount =
-                        state.cart[targetIndex].amount + addItem.amount;
-                    try {
-                        await model.updateCart(id, newAmount);
-                        const newCart = [...state.cart];
-                        newCart[targetIndex] = {
-                            ...newCart[targetIndex],
-                            amount: newAmount,
-                        };
-                        state.cart = newCart;
-                    } catch (err) {
-                        console.log("err", err);
-                        alert("request failed!");
-                    }
+    view.nextBtn.addEventListener('click', () => {
+        const maxPage = Math.ceil(model.inventory.length / itemPerPage) - 1;
+        if (model.currentPage < maxPage) {
+            model.setCurrentPage(model.currentPage + 1);
+        }
+    });
 
-                    /* state.cart = state.cart.map((item) => {
-                        if (Number(item.id) === Number(id)) {
-                            return {
-                                ...item,
-                                amount: item.amount + addItem.amount,
-                            };
-                        } else {
-                            return item;
-                        }
-                    }); */
-                } else {
-                    try {
-                        console.log("addItem", addItem);
-                        await model.addToCart(addItem);
-                        state.cart = [addItem, ...state.cart];
-                    } catch (err) {
-                        console.log("err", err);
-                        alert("request failed!");
-                    }
-                }
-            }
-        });
-    };
+    model.subscribe(() => {
+        view.renderInventory(model.inventory, model.currentPage);
+        view.renderCart(model.cart);
+        updatePageInfo();
+    });
 
-    const handleDelete = () => {
-        view.cartListEl.addEventListener("click", async (event) => {
-            const target = event.target;
-            const id = target.parentElement.id.split("-")[1];
-            const className = target.className;
-            if (className === "delete-button") {
-                try {
-                    await model.deleteFromCart(id);
-                    state.cart = state.cart.filter(
-                        (item) => Number(item.id) !== Number(id)
-                    );
-                } catch (err) {
-                    console.log("err", err);
-                    alert("request failed!");
-                }
-            }
-        });
-    };
-
-    const handleCheckout = () => {
-        view.checkoutBtnEl.addEventListener("click", async () => {
-            try {
-                await model.checkout();
-                state.cart = [];
-            } catch (err) {
-                alert("request failed!");
-                console.log("err", err);
-            }
-        });
-    };
-    const bootstrap = async () => {
-        state.subscribe(() => {
-            view.renderInventory(state.inventory);
-            view.renderCart(state.cart);
-        });
-        handleUpdateAmount();
-        handleAddToCart();
-
-        handleDelete();
-        handleCheckout();
-        await init();
-    };
-    return {
-        bootstrap,
-    };
+    return { init };
 })(Model, View);
 
-Controller.bootstrap();
+document.addEventListener("DOMContentLoaded", Controller.init);
